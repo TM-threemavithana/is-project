@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Secure Comm Flow</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --edge-padding: 120px;
+  --max-content-width: 1400px;
+  --actor-width: 160px;
+  --actor-height: 72px;
+  --row-height: 62px;
+  --font-scale: 1;
+}
+
+@media (max-width: 1200px) {
+  :root {
+    --edge-padding: 80px;
+    --actor-width: 140px;
+    --actor-height: 68px;
+    --row-height: 58px;
+    --font-scale: 0.95;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    --edge-padding: 40px;
+    --actor-width: 110px;
+    --actor-height: 60px;
+    --row-height: 54px;
+    --font-scale: 0.85;
+  }
+}
+
+@media (max-width: 600px) {
+  :root {
+    --edge-padding: 20px;
+    --actor-width: 85px;
+    --actor-height: 50px;
+    --row-height: 50px;
+    --font-scale: 0.75;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #ffffff;
+  font-family: 'IBM Plex Sans', sans-serif;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Subtle paper texture - disabled for pure white canvas */
+body::before {
+  display: none;
+}
+
+/* Top accent bar */
+.top-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 4px;
+  background: #111;
+  z-index: 100;
+}
+
+/* Header */
+.header {
+  margin: 36px auto 0;
+  max-width: var(--max-content-width);
+  width: 100%;
+  padding: 0 var(--edge-padding);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  z-index: 10;
+  opacity: 0;
+  animation: fadeIn 0.6s 0.1s forwards;
+  gap: 20px;
+}
+.header-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(11px * var(--font-scale)); font-weight: 400; letter-spacing: 0.18em;
+  color: #888; text-transform: uppercase;
+}
+.header-name {
+  font-size: calc(22px * var(--font-scale)); font-weight: 600; color: #111;
+  letter-spacing: -0.02em; margin-top: 4px;
+}
+.header-right {
+  text-align: right;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(10px * var(--font-scale)); color: #aaa; letter-spacing: 0.12em;
+  line-height: 1.8;
+}
+
+@media (max-width: 600px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 24px;
+  }
+  .header-right {
+    text-align: left;
+  }
+}
+
+/* Divider */
+.divider {
+  margin: 20px auto;
+  max-width: var(--max-content-width);
+  width: calc(100% - 2 * var(--edge-padding));
+  height: 1px;
+  background: #ddd;
+  z-index: 10;
+  opacity: 0;
+  animation: fadeIn 0.5s 0.3s forwards;
+}
+
+/* Main canvas area */
+.flow-area {
+  position: relative;
+  margin: 0 auto;
+  max-width: var(--max-content-width);
+  width: 100%;
+  flex: 1;
+  min-height: 600px;
+  padding-bottom: 80px;
+  z-index: 5;
+}
+
+/* ── Actor blocks ── */
+.actors {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 var(--edge-padding);
+  z-index: 6;
+}
+.actor {
+  display: flex; flex-direction: column; align-items: center;
+  width: var(--actor-width);
+  background: #fff;
+  border: 1.5px solid #111;
+  box-sizing: border-box;
+  opacity: 0;
+  z-index: 5;
+  transition: border-color 0.3s ease;
+}
+.actor-box {
+  width: 100%; height: var(--actor-height);
+  border: none;
+  border-bottom: 1.5px solid #111;
+  background: transparent;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  position: relative;
+  box-sizing: border-box;
+  transition: background-color 0.3s ease;
+}
+.actor-box.active-gemma { background: #111; }
+.actor-box.active-echo  { background: #111; }
+
+.actor-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(13px * var(--font-scale)); font-weight: 500; letter-spacing: 0.12em;
+  color: #111; text-transform: uppercase;
+}
+.actor-sub {
+  font-size: calc(9px * var(--font-scale)); font-weight: 300; letter-spacing: 0.15em;
+  color: #999; margin-top: 3px; text-transform: uppercase;
+}
+.actor-box.active-gemma .actor-label,
+.actor-box.active-gemma .actor-sub { color: #fff; }
+.actor-box.active-echo .actor-label,
+.actor-box.active-echo .actor-sub  { color: #fff; }
+
+/* Lifelines - hidden placeholders because the actor column serves as the lifeline! */
+.lifeline {
+  display: none;
+}
+
+/* ── Message rows ── */
+.messages {
+  position: absolute;
+  top: calc(20px + var(--actor-height) + 40px);
+  left: var(--edge-padding);
+  right: var(--edge-padding);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.msg-row {
+  height: var(--row-height);
+  display: flex; align-items: center;
+  position: relative;
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 0.38s ease, transform 0.38s ease;
+}
+.msg-row.show { opacity: 1; transform: none; }
+
+/* Phase tag on left */
+.phase-tag {
+  position: absolute;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(8px * var(--font-scale));
+  letter-spacing: 0.15em; color: #aaa; text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Arrow */
+.arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  height: 1.5px; display: flex; align-items: center;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Arrowhead triangles */
+.arrowhead-r, .arrowhead-l {
+  position: absolute; width: 0; height: 0;
+}
+.arrowhead-r {
+  right: -1px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #111;
+}
+.arrowhead-l {
+  left: -1px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 8px solid #111;
+}
+.arrowhead-r.c-enc { border-left-color: #111; }
+.arrowhead-l.c-enc { border-right-color: #111; }
+
+/* Self loop - kept for compatibility but hidden since we now use internal-processing bands! */
+.self-loop {
+  display: none;
+}
+
+/* Internal Processing Card Bands (from user sketch) */
+.internal-processing {
+  position: absolute;
+  height: 48px; /* Sits beautifully within the message row */
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 1.5px solid #111;
+  border-bottom: 1.5px solid #111;
+  background-color: #fcfcfc;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+}
+.wave-container {
+  width: 200%;
+  height: 14px; /* Perfect wave band height */
+  position: absolute;
+  bottom: 0px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C150,100 350,20 500,60 C650,100 850,20 1000,60 C1150,100 1350,20 1500,60 L1500,120 L0,120 Z' fill='%23111' opacity='0.08'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-size: 50% 100%;
+  animation: waveMove 3s linear infinite;
+  pointer-events: none;
+}
+.wave-container::before {
+  content: '';
+  position: absolute;
+  top: -10px; left: 0; width: 100%; height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M0,60 C150,100 350,20 500,60 C650,100 850,20 1000,60 C1150,100 1350,20 1500,60 L1500,120 L0,120 Z' fill='%23111' opacity='0.05'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-size: 50% 100%;
+  animation: waveMove 5s linear infinite reverse;
+}
+@keyframes waveMove {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.internal-label {
+  position: relative;
+  background: #fff;
+  border: 1.5px solid #111;
+  padding: 4px 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  z-index: 16;
+  box-shadow: 2px 2px 0px rgba(0,0,0,1);
+  text-transform: uppercase;
+}
+
+/* Labels */
+.msg-label {
+  position: absolute;
+  font-size: calc(11px * var(--font-scale)); font-weight: 400; letter-spacing: 0.02em;
+  color: #111; white-space: nowrap;
+}
+.msg-label.mono {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(10px * var(--font-scale)); color: #444;
+}
+.msg-label.enc {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(10px * var(--font-scale)); font-weight: 500;
+  background: #111; color: #fff;
+  padding: 2px 8px;
+}
+
+/* Packet traveler */
+.traveler {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #111; opacity: 0; pointer-events: none;
+}
+.traveler.enc { background: #111; }
+
+/* Tooltip Popover (for showing payload contents on hover) */
+.tooltip {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1.5px solid #111111;
+  padding: 10px 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: #111;
+  z-index: 9999;
+  box-shadow: 4px 4px 0px rgba(0,0,0,1);
+  pointer-events: none; /* Let cursor hover seamlessly */
+  max-width: 330px;
+  line-height: 1.5;
+  border-radius: 0px;
+}
+.tooltip-title {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1.5px solid #111;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tooltip-item {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.tooltip-key {
+  color: #666;
+  font-weight: 600;
+}
+.tooltip-val {
+  color: #111;
+}
+
+/* Bottom bar */
+.bottom-bar {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  max-width: var(--max-content-width);
+  width: 100%;
+  padding: 16px var(--edge-padding) 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 10;
+  background: #F7F6F3;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  opacity: 0;
+  animation: fadeIn 0.5s 0.8s forwards;
+}
+
+.legend {
+  display: flex; gap: 28px; align-items: center;
+}
+.leg-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: calc(10px * var(--font-scale)); letter-spacing: 0.1em; color: #999;
+  font-family: 'IBM Plex Mono', monospace; text-transform: uppercase;
+}
+.leg-line { width: 24px; height: 1.5px; }
+.leg-line.solid { background: #111; }
+.leg-line.dashed {
+  background: repeating-linear-gradient(90deg, #bbb 0, #bbb 4px, transparent 4px, transparent 8px);
+}
+.leg-line.thick { height: 3px; background: #111; }
+
+.step-info {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(10px * var(--font-scale)); color: #bbb; letter-spacing: 0.15em;
+}
+.step-info span { color: #666; }
+
+.click-hint {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: calc(10px * var(--font-scale)); letter-spacing: 0.15em; color: #ccc;
+  animation: blink 2s ease-in-out infinite 1.5s;
+}
+
+@keyframes blink { 0%,100%{opacity:0.4} 50%{opacity:1} }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+@keyframes fadeDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
+
+@media (max-width: 768px) {
+  .legend {
+    gap: 12px;
+  }
+  .leg-item {
+    font-size: 8px;
+    gap: 4px;
+  }
+  .leg-line {
+    width: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .bottom-bar {
+    flex-direction: column-reverse;
+    gap: 12px;
+    padding: 12px var(--edge-padding) 16px;
+    align-items: center;
+    text-align: center;
+  }
+  .legend {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+</style>
+</head>
+<body>
+<div id="tooltip" class="tooltip"></div>
+
+<div class="flow-area" id="flow" style="margin-top: 40px;">
+
+  <!-- Actors -->
+  <div class="actors" id="actors">
+    <div class="actor" id="a-user">
+      <div class="actor-box" id="ab-user">
+        <div class="actor-label">User</div>
+        <div class="actor-sub">Voice Client</div>
+      </div>
+      <div class="lifeline" id="ll-user"></div>
+    </div>
+    <div class="actor" id="a-gemma">
+      <div class="actor-box" id="ab-gemma">
+        <div class="actor-label">Gemma</div>
+        <div class="actor-sub">Voice Bridge</div>
+      </div>
+      <div class="lifeline" id="ll-gemma"></div>
+    </div>
+    <div class="actor" id="a-echo">
+      <div class="actor-box" id="ab-echo">
+        <div class="actor-label">Echo</div>
+        <div class="actor-sub">Knowledge API</div>
+      </div>
+      <div class="lifeline" id="ll-echo"></div>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div class="messages" id="messages"></div>
+
+</div>
+
+<div class="bottom-bar">
+  <div class="click-hint" id="hint">▸ CLICK TO ADVANCE</div>
+  <div class="step-info">STEP <span id="ctr">0</span> / 9</div>
+</div>
+
+<script>
+// Layout constants (computed after load)
+let CU, CG, CE; // center x of each actor within messages div
+let MH; // messages div height
+const TOTAL_STEPS = 9;
+let current = 0;
+
+// Step definitions
+const STEPS = [
+  {
+    id: 's1', phase: null,
+    type: 'arrow', from: 'U', to: 'G', dir: 'r',
+    label: 'Voice Request', labelPos: 'above',
+    enc: false,
+    payload: [
+      { key: 'voice', val: 'raw audio stream (PCM/Opus format)' },
+      { key: 'request', val: 'session metadata (UUID, device capabilities)' }
+    ]
+  },
+  {
+    id: 's2', phase: 'ECDH HANDSHAKE',
+    type: 'arrow', from: 'G', to: 'E', dir: 'r',
+    label: 'Handshake Request', labelPos: 'above',
+    sub: 'ECDH Public Key', enc: false,
+    payload: [
+      { key: 'client_dh_pubkey', val: 'Gemma ECDH public key (secp256r1)' },
+      { key: 'client_random', val: '32-byte secure random value' },
+      { key: 'cipher_suites', val: 'TLS_AES_256_GCM_SHA384' }
+    ]
+  },
+  {
+    id: 's3', phase: null,
+    type: 'arrow', from: 'E', to: 'G', dir: 'l',
+    label: 'Server Challenge', labelPos: 'above',
+    enc: false,
+    payload: [
+      { key: 'server_dh_pubkey', val: 'Echo ECDH public key (secp256r1)' },
+      { key: 'server_random', val: '32-byte secure random value' },
+      { key: 'challenge_salt', val: '16-byte cryptographic server salt' },
+      { key: 'signature', val: 'Echo certificate-based parameters signature' }
+    ]
+  },
+  {
+    id: 's4', phase: null,
+    type: 'arrow', from: 'G', to: 'E', dir: 'r',
+    label: 'Authentication Response', labelPos: 'above',
+    sub: 'Signed Challenge', enc: false,
+    payload: [
+      { key: 'signed_challenge', val: 'Gemma signature verifying server salt' },
+      { key: 'client_cert', val: 'Gemma public authentication certificate' }
+    ]
+  },
+  {
+    id: 's5', phase: null,
+    type: 'loop', actor: 'E',
+    label: 'Verify Session', sub: 'HKDF Key Derivation',
+    enc: false,
+    payload: [
+      { key: 'shared_secret', val: 'Derived ECDH Shared Secret (G_xy)' },
+      { key: 'session_key', val: 'Derived AES-256 Symmetric key (HKDF-SHA256)' },
+      { key: 'sig_status', val: 'Verification status of client certificate' }
+    ]
+  },
+  {
+    id: 's6', phase: 'ENCRYPTED EXCHANGE',
+    type: 'loop', actor: 'G',
+    label: 'Encrypt Query', sub: 'AES-256-GCM + HMAC',
+    enc: true,
+    payload: [
+      { key: 'aes_key', val: 'Derived session symmetric key' },
+      { key: 'plaintext', val: '"Transcribed voice query payload text"' },
+      { key: 'hmac_tag', val: 'Generated MAC verification signature' }
+    ]
+  },
+  {
+    id: 's7', phase: null,
+    type: 'arrow', from: 'G', to: 'E', dir: 'r',
+    label: 'Secure Query Request', labelPos: 'above',
+    sub: '[ ENCRYPTED ]', enc: true,
+    payload: [
+      { key: 'ciphertext', val: 'AES-256-GCM encrypted payload bytes' },
+      { key: 'hmac_tag', val: 'HMAC-SHA256 message integrity signature' },
+      { key: 'iv', val: '12-byte initialization vector (nonce)' }
+    ]
+  },
+  {
+    id: 's8', phase: null,
+    type: 'arrow', from: 'E', to: 'G', dir: 'l',
+    label: 'Encrypted Response', labelPos: 'above',
+    sub: '[ SIGNED ]', enc: true,
+    payload: [
+      { key: 'ciphertext', val: 'AES-256-GCM encrypted response data' },
+      { key: 'hmac_tag', val: 'HMAC-SHA256 response integrity signature' },
+      { key: 'iv', val: '12-byte response initialization vector' }
+    ]
+  },
+  {
+    id: 's9', phase: null,
+    type: 'arrow', from: 'G', to: 'U', dir: 'l',
+    label: 'Voice Response', labelPos: 'above',
+    enc: false,
+    payload: [
+      { key: 'audio', val: 'Synthesized voice response stream (PCM)' },
+      { key: 'transcript', val: 'Text representation of Echo response' },
+      { key: 'latency_ms', val: 'Symmetric round-trip transaction latency' }
+    ]
+  },
+];
+
+function computeLayout() {
+  const msgs = document.getElementById('messages');
+  if (!msgs) return;
+  const rect = msgs.getBoundingClientRect();
+
+  const actorEls = [
+    document.getElementById('a-user'),
+    document.getElementById('a-gemma'),
+    document.getElementById('a-echo'),
+  ];
+  
+  // Calculate relative left offset of messages dynamically
+  const msgsLeft = rect.left;
+
+  actorEls.forEach((el, i) => {
+    const box = el.querySelector('.actor-box');
+    if (!box) return;
+    const br = box.getBoundingClientRect();
+    const cx = br.left + br.width / 2 - msgsLeft;
+    if (i === 0) CU = cx;
+    if (i === 1) CG = cx;
+    if (i === 2) CE = cx;
+  });
+
+  MH = rect.height;
+}
+
+function buildMessages() {
+  computeLayout(); // Compute fresh layout coordinates!
+  
+  // Cleanly reset active tooltip on dynamic layout regenerations
+  const tooltip = document.getElementById('tooltip');
+  if (tooltip) tooltip.style.display = 'none';
+
+  const msgs = document.getElementById('messages');
+  if (!msgs) return;
+  msgs.innerHTML = '';
+  
+  // Fetch row height and actor width dynamically from CSS variables
+  const rowH = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 62;
+  const aw = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--actor-width')) || 160;
+
+  STEPS.forEach((step, i) => {
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+    row.id = 'row-' + i;
+
+    // Phase tags removed for minimalist design
+
+    if (step.type === 'arrow') {
+      const x1_raw = step.from === 'U' ? CU : step.from === 'G' ? CG : CE;
+      const x2_raw = step.to   === 'U' ? CU : step.to   === 'G' ? CG : CE;
+      
+      // Adjust start and end coordinates so arrows touch the borders of the rectangular column blocks
+      let x1, x2;
+      if (x1_raw < x2_raw) {
+        x1 = x1_raw + aw / 2;
+        x2 = x2_raw - aw / 2;
+      } else {
+        x1 = x1_raw - aw / 2;
+        x2 = x2_raw + aw / 2;
+      }
+      
+      const left = Math.min(x1, x2);
+      const width = Math.abs(x2 - x1);
+      const isEnc = step.enc;
+
+      // Line
+      const line = document.createElement('div');
+      line.className = 'arrow';
+      line.style.cssText = `left:${left}px;width:${width}px;background:${isEnc ? '#111' : '#111'};opacity:${isEnc ? 1 : 0.85};height:${isEnc ? '2px' : '1.5px'};`;
+
+      // Arrowhead
+      const head = document.createElement('div');
+      if (step.dir === 'r') {
+        head.className = 'arrowhead-r' + (isEnc ? ' c-enc' : '');
+      } else {
+        head.className = 'arrowhead-l' + (isEnc ? ' c-enc' : '');
+      }
+      line.appendChild(head);
+
+      // Traveler
+      const trav = document.createElement('div');
+      trav.className = 'traveler' + (isEnc ? ' enc' : '');
+      trav.id = 'trav-' + i;
+      line.appendChild(trav);
+
+      row.appendChild(line);
+
+      // Label
+      const mid = left + width / 2;
+      const lbl = document.createElement('div');
+      lbl.className = 'msg-label' + (isEnc ? ' enc' : '');
+      lbl.style.cssText = `left:${mid}px;transform:translateX(-50%);top:${step.labelPos === 'above' ? '10px' : 'auto'};bottom:${step.labelPos === 'below' ? '10px' : 'auto'};`;
+      lbl.textContent = step.label;
+      row.appendChild(lbl);
+
+      if (step.sub) {
+        const sub = document.createElement('div');
+        sub.className = 'msg-label mono';
+        sub.style.cssText = `left:${mid}px;transform:translateX(-50%);top:28px;`;
+        sub.textContent = step.sub;
+        row.appendChild(sub);
+      }
+
+    } else if (step.type === 'loop') {
+      const cx = step.actor === 'U' ? CU : step.actor === 'G' ? CG : CE;
+      
+      // Create a premium internal processing card band overlay centered on the column
+      const band = document.createElement('div');
+      band.className = 'internal-processing';
+      band.style.cssText = `left:${cx - aw / 2}px; width:${aw}px;`;
+      
+      const wave = document.createElement('div');
+      wave.className = 'wave-container';
+      band.appendChild(wave);
+
+      const lbl = document.createElement('div');
+      lbl.className = 'internal-label';
+      lbl.innerHTML = `${step.label}<br><span style="font-size:8px; font-weight:300; opacity:0.8; margin-top:2px; display:block;">${step.sub || ''}</span>`;
+      band.appendChild(lbl);
+
+      row.appendChild(band);
+    }
+
+    // Hover interactions for showing payload details
+    row.addEventListener('mouseenter', (e) => {
+      // Highlight the row's arrow line
+      const arrowLine = row.querySelector('.arrow');
+      if (arrowLine) {
+        arrowLine.style.background = '#000';
+        arrowLine.style.transform = 'translateY(-50%) scaleY(1.6)';
+        arrowLine.style.boxShadow = '0 0 6px rgba(0,0,0,0.15)';
+      }
+      
+      // Populate and show the tooltip
+      const tooltip = document.getElementById('tooltip');
+      if (tooltip && step.payload) {
+        let html = `<div class="tooltip-title"><span>${step.label}</span><span style="font-size:8px; opacity:0.6; font-weight:normal;">${step.enc ? 'ENCRYPTED' : 'PLAINTEXT'}</span></div>`;
+        step.payload.forEach(item => {
+          html += `
+            <div class="tooltip-item">
+              <span class="tooltip-key">• ${item.key}:</span>
+              <span class="tooltip-val">${item.val}</span>
+            </div>
+          `;
+        });
+        tooltip.innerHTML = html;
+        tooltip.style.display = 'flex';
+      }
+    });
+
+    row.addEventListener('mousemove', (e) => {
+      const tooltip = document.getElementById('tooltip');
+      if (tooltip) {
+        // Position relative to cursor
+        tooltip.style.left = (e.pageX + 16) + 'px';
+        tooltip.style.top = (e.pageY + 12) + 'px';
+      }
+    });
+
+    row.addEventListener('mouseleave', () => {
+      // Reset arrow line highlights
+      const arrowLine = row.querySelector('.arrow');
+      if (arrowLine) {
+        arrowLine.style.background = '#111';
+        arrowLine.style.transform = 'translateY(-50%)';
+        arrowLine.style.boxShadow = 'none';
+      }
+      
+      // Hide the tooltip
+      const tooltip = document.getElementById('tooltip');
+      if (tooltip) {
+        tooltip.style.display = 'none';
+      }
+    });
+
+    msgs.appendChild(row);
+  });
+
+  // Set column heights dynamically
+  const actorH = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--actor-height')) || 80;
+  const totalH = actorH + STEPS.length * rowH + 60;
+  ['a-user','a-gemma','a-echo'].forEach(id => {
+    const col = document.getElementById(id);
+    if (col) col.style.height = totalH + 'px';
+  });
+
+  // Phase brackets
+  setupBrackets();
+}
+
+function setupBrackets() {
+  // Removed for clean sketch-style layout
+}
+
+function animateTraveler(stepIdx) {
+  const step = STEPS[stepIdx];
+  if (step.type !== 'arrow') return;
+  const trav = document.getElementById('trav-' + stepIdx);
+  if (!trav) return;
+  
+  const aw = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--actor-width')) || 160;
+  const x1_raw = step.from === 'U' ? CU : step.from === 'G' ? CG : CE;
+  const x2_raw = step.to   === 'U' ? CU : step.to   === 'G' ? CG : CE;
+  const width = Math.abs(x2_raw - x1_raw) - aw;
+  const goRight = step.dir === 'r';
+
+  trav.style.transition = 'none';
+  trav.style.left = goRight ? '0' : (width - 6) + 'px';
+  trav.style.opacity = '0';
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      trav.style.transition = 'left 0.5s ease-in-out, opacity 0.15s';
+      trav.style.opacity = '1';
+      trav.style.left = goRight ? (width - 6) + 'px' : '0';
+      setTimeout(() => { trav.style.opacity = '0'; }, 460);
+    }, 30);
+  });
+}
+
+function highlight(actor) {
+  ['ab-user','ab-gemma','ab-echo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active-gemma','active-echo');
+  });
+  const gemmaBox = document.getElementById('ab-gemma');
+  const echoBox = document.getElementById('ab-echo');
+  if (actor === 'G' && gemmaBox) gemmaBox.classList.add('active-gemma');
+  if (actor === 'E' && echoBox) echoBox.classList.add('active-echo');
+}
+
+function render(n, animate = true) {
+  // Show rows 0..n-1
+  STEPS.forEach((_, i) => {
+    const row = document.getElementById('row-' + i);
+    if (row) {
+      if (i < n) row.classList.add('show');
+      else row.classList.remove('show');
+    }
+  });
+
+  // Animate traveler on newly shown step if requested
+  if (n > 0 && n <= STEPS.length && animate) animateTraveler(n - 1);
+
+  // Highlight active actor
+  const step = STEPS[n - 1];
+  if (step) {
+    if (step.type === 'arrow') highlight(step.to === 'U' ? 'U' : step.to);
+    else if (step.type === 'loop') highlight(step.actor);
+  }
+
+  // Phase brackets removed
+
+  // Counter
+  const ctr = document.getElementById('ctr');
+  if (ctr) ctr.textContent = n;
+  
+  const hint = document.getElementById('hint');
+  if (hint) {
+    if (n >= TOTAL_STEPS) hint.textContent = '✓ COMPLETE — CLICK TO RESTART';
+    else hint.textContent = '▸ CLICK TO ADVANCE';
+  }
+}
+
+document.body.addEventListener('click', () => {
+  if (current >= TOTAL_STEPS) {
+    current = 0;
+    ['ab-user','ab-gemma','ab-echo'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('active-gemma','active-echo');
+    });
+  } else {
+    current++;
+  }
+  render(current);
+});
+
+// Stagger actor entrance
+function animateActors() {
+  ['a-user','a-gemma','a-echo'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) {
+      setTimeout(() => {
+        el.style.animation = `fadeDown 0.5s forwards`;
+      }, 400 + i * 150);
+    }
+  });
+}
+
+window.addEventListener('load', () => {
+  buildMessages(); // Calls computeLayout automatically
+  animateActors();
+  render(0);
+
+  // Auto first step
+  setTimeout(() => { 
+    if (current === 0) {
+      current = 1; 
+      render(current); 
+    }
+  }, 1800);
+});
+
+// Smart responsive resize handling
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    buildMessages();
+    render(current, false); // Render state without re-triggering traveler animation
+  }, 100);
+});
+</script>
+</body>
+</html>
